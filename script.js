@@ -1,70 +1,180 @@
-const btn = document.querySelector("#btn");
-const content = document.querySelector("#content");
-const voiceGif = document.querySelector("#voice");
+// Voice Assistant Module
+const VoiceAssistant = (() => {
+  let maleVoice = null;
+  const isSpeechSupported = !!window.speechSynthesis;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const isRecognitionSupported = !!SpeechRecognition;
 
-let maleVoice;
+  // Initialize voices
+  const initVoices = () => {
+    return new Promise((resolve) => {
+      if (!isSpeechSupported) {
+        console.warn("Speech synthesis not supported.");
+        resolve();
+        return;
+      }
 
-window.speechSynthesis.onvoiceschanged = () => {
-  const voices = window.speechSynthesis.getVoices();
-  maleVoice = voices.find(v => v.name === "Google UK English Male") || voices[0];
-};
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        maleVoice = voices.find((v) => v.name === "Google UK English Male") || voices[0];
+        resolve();
+      };
 
-// Speak Function
-function speak(text) {
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.voice = maleVoice;
-  utter.rate = 1;
-  utter.pitch = 1;
-  utter.volume = 1;
-  window.speechSynthesis.speak(utter);
-}
+      if (window.speechSynthesis.getVoices().length) {
+        loadVoices();
+      } else {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+    });
+  };
 
-// Wish on load
-function wishMe() {
-  const hour = new Date().getHours();
-  if (hour < 12) speak("Good Morning Miss");
-  else if (hour < 17) speak("Good Afternoon Miss");
-  else speak("Good Evening Miss");
-}
+  // Speak function
+  const speak = (text, outputElement) => {
+    if (!isSpeechSupported) {
+      console.warn("Cannot speak: Speech synthesis not supported.");
+      return;
+    }
 
-window.addEventListener("load", wishMe);
+    const utterance = new SpeechSynthesisUtterance(text);
+    if (maleVoice) utterance.voice = maleVoice;
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    if (outputElement) outputElement.textContent = text; // Visual feedback
+    window.speechSynthesis.cancel(); // Prevent overlap
+    window.speechSynthesis.speak(utterance);
+  };
 
-// Voice Recognition Setup
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-const recognition = new SpeechRecognition();
-recognition.lang = "en-IN";
+  // Time-based greeting
+  const wishMe = () => {
+    const hour = new Date().getHours();
+    let greeting;
+    if (hour < 12) greeting = "Good Morning Miss";
+    else if (hour < 17) greeting = "Good Afternoon Miss";
+    else greeting = "Good Evening Miss";
+    speak(greeting);
+  };
 
-recognition.onresult = (event) => {
-  const transcript = event.results[0][0].transcript;
-  content.innerText = transcript;
-  takeCommand(transcript.toLowerCase());
-};
+  // Process command
+  const takeCommand = async (message, { btn, voice, content } = {}) => {
+    if (btn && voice) {
+      btn.style.display = "flex";
+      voice.style.display = "none";
+    }
 
-// Start Listening
-btn.addEventListener("click", () => {
-  recognition.start();
-  btn.style.display = "none";
-  voiceGif.style.display = "block";
-});
+    if (!message || typeof message !== "string") {
+      speak("Sorry, I didn't understand the command.", content);
+      return;
+    }
 
-// Process Command
-function takeCommand(message) {
-  btn.style.display = "flex";
-  voiceGif.style.display = "none";
+    message = message.toLowerCase().trim();
+    await initVoices();
 
-  if (message.includes("hello") || message.includes("hey")) {
-    speak("Hello Miss, how can I help you?");
-  } else if (message.includes("who are you")) {
-    speak("I am Cool, your virtual assistant created by Miss Nidhi.");
-  } else if (message.includes("open youtube")) {
-    speak("Opening YouTube.");
-    window.open("https://www.youtube.com", "_blank");
-  } else if (message.includes("open google")) {
-    speak("Opening Google.");
-    window.open("https://www.google.com", "_blank");
-  } else {
-    const searchQuery = message.replace("cool", "").trim();
-    speak(`Here's what I found for ${searchQuery}`);
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`, "_blank");
+    const commands = [
+      {
+        keywords: ["hello", "hey"],
+        action: () => speak("Hello Miss, how can I help you?", content),
+      },
+      {
+        keywords: ["who are you"],
+        action: () => speak("I am Cool, your virtual assistant created by Miss Nidhi.", content),
+      },
+      {
+        keywords: ["open youtube"],
+        action: () => {
+          speak("Opening YouTube.", content);
+          window.open("https://www.youtube.com", "_blank");
+        },
+      },
+      {
+        keywords: ["open google"],
+        action: () => {
+          speak("Opening Google.", content);
+          window.open("https://www.google.com", "_blank");
+        },
+      },
+    ];
+
+    const matchedCommand = commands.find((cmd) =>
+      cmd.keywords.some((keyword) => message.includes(keyword))
+    );
+
+    if (matchedCommand) {
+      matchedCommand.action();
+    } else {
+      const searchQuery = message.replace("cool", "").trim();
+      if (searchQuery) {
+        speak(`Here's what I found for ${searchQuery}`, content);
+        window.open(`https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`, "_blank");
+      } else {
+        speak("Please provide a valid query to search.", content);
+      }
+    }
+  };
+
+  // Start speech recognition
+  const startRecognition = (btn, voice, content) => {
+    if (!isRecognitionSupported) {
+      speak("Speech recognition is not supported in this browser.", content);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      if (btn && voice) {
+        btn.style.display = "none";
+        voice.style.display = "block";
+      }
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      if (content) content.textContent = transcript;
+      takeCommand(transcript.toLowerCase(), { btn, voice, content });
+    };
+
+    recognition.onerror = (event) => {
+      speak("Sorry, I encountered an error while listening. Please try again.", content);
+      console.error("Speech recognition error:", event.error);
+      if (btn && voice) {
+        btn.style.display = "flex";
+        voice.style.display = "none";
+      }
+    };
+
+    recognition.onend = () => {
+      if (btn && voice) {
+        btn.style.display = "flex";
+        voice.style.display = "none";
+      }
+    };
+
+    recognition.start();
+  };
+
+  return { takeCommand, speak, wishMe, startRecognition, initVoices };
+})();
+
+// Initialize assistant
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.querySelector("#btn");
+  const content = document.querySelector("#content");
+  const voice = document.querySelector("#voice");
+
+  if (!btn || !content || !voice) {
+    console.error("Required DOM elements (#btn, #content, or #voice) not found.");
+    return;
   }
-}
+
+  // Greet on load
+  VoiceAssistant.wishMe();
+
+  // Start recognition on button click
+  btn.addEventListener("click", () => {
+    VoiceAssistant.startRecognition(btn, voice, content);
+  });
+});
