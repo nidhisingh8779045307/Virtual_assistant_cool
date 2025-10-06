@@ -1,6 +1,6 @@
 // Voice Assistant Module
 const VoiceAssistant = (() => {
-  let maleVoice = null;
+  let teenMaleVoice = null;
   const isSpeechSupported = !!window.speechSynthesis;
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const isRecognitionSupported = !!SpeechRecognition;
@@ -9,14 +9,23 @@ const VoiceAssistant = (() => {
   const initVoices = () => {
     return new Promise((resolve) => {
       if (!isSpeechSupported) {
-        console.warn("Speech synthesis not supported.");
+        console.warn("Speech synthesis not supported in this browser.");
+        alert("This browser does not support speech synthesis. Please use Chrome or Edge.");
         resolve();
         return;
       }
 
       const loadVoices = () => {
         const voices = window.speechSynthesis.getVoices();
-        maleVoice = voices.find((v) => v.name === "Google UK English Male") || voices[0];
+
+        // Pick a male English voice (closest to teen male)
+        teenMaleVoice =
+          voices.find(v => v.name.toLowerCase().includes("male") && v.lang.startsWith("en")) ||
+          voices.find(v => v.lang.startsWith("en")) ||
+          voices[0];
+
+        console.log("Selected voice:", teenMaleVoice?.name);
+        console.log("Available voices:", voices.map(v => v.name));
         resolve();
       };
 
@@ -29,24 +38,26 @@ const VoiceAssistant = (() => {
   };
 
   // Speak function
-  const speak = (text, outputElement) => {
-    if (!isSpeechSupported) {
-      console.warn("Cannot speak: Speech synthesis not supported.");
-      return;
-    }
+  const speak = async (text, outputElement) => {
+    if (!isSpeechSupported) return;
 
+    await initVoices();
     const utterance = new SpeechSynthesisUtterance(text);
-    if (maleVoice) utterance.voice = maleVoice;
+    if (teenMaleVoice) utterance.voice = teenMaleVoice;
     utterance.rate = 1;
-    utterance.pitch = 1;
+    utterance.pitch = 1.1; // slightly higher pitch for teen effect
     utterance.volume = 1;
-    if (outputElement) outputElement.textContent = text; // Visual feedback
-    window.speechSynthesis.cancel(); // Prevent overlap
+
+    if (outputElement) outputElement.textContent = text;
+
+    // Cancel any previous speech to avoid overlap
+    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   };
 
   // Time-based greeting
-  const wishMe = () => {
+  const wishMe = async () => {
+    await initVoices();
     const hour = new Date().getHours();
     let greeting;
     if (hour < 12) greeting = "Good Morning Miss";
@@ -71,32 +82,14 @@ const VoiceAssistant = (() => {
     await initVoices();
 
     const commands = [
-      {
-        keywords: ["hello", "hey"],
-        action: () => speak("Hello Miss, how can I help you?", content),
-      },
-      {
-        keywords: ["who are you"],
-        action: () => speak("I am Cool, your virtual assistant created by Miss Nidhi.", content),
-      },
-      {
-        keywords: ["open youtube"],
-        action: () => {
-          speak("Opening YouTube.", content);
-          window.open("https://www.youtube.com", "_blank");
-        },
-      },
-      {
-        keywords: ["open google"],
-        action: () => {
-          speak("Opening Google.", content);
-          window.open("https://www.google.com", "_blank");
-        },
-      },
+      { keywords: ["hello", "hey"], action: () => speak("Hello Miss, how can I help you?", content) },
+      { keywords: ["who are you"], action: () => speak("I am Cool, your virtual assistant created by Miss Nidhi.", content) },
+      { keywords: ["open youtube"], action: () => { speak("Opening YouTube.", content); window.open("https://www.youtube.com", "_blank"); } },
+      { keywords: ["open google"], action: () => { speak("Opening Google.", content); window.open("https://www.google.com", "_blank"); } },
     ];
 
-    const matchedCommand = commands.find((cmd) =>
-      cmd.keywords.some((keyword) => message.includes(keyword))
+    const matchedCommand = commands.find(cmd =>
+      cmd.keywords.some(keyword => message.includes(keyword))
     );
 
     if (matchedCommand) {
@@ -115,7 +108,8 @@ const VoiceAssistant = (() => {
   // Start speech recognition
   const startRecognition = (btn, voice, content) => {
     if (!isRecognitionSupported) {
-      speak("Speech recognition is not supported in this browser.", content);
+      speak("Speech recognition is not supported in this browser. Please use Chrome or Edge.", content);
+      alert("Speech recognition is not supported. Please use Chrome or Edge.");
       return;
     }
 
@@ -128,17 +122,18 @@ const VoiceAssistant = (() => {
       if (btn && voice) {
         btn.style.display = "none";
         voice.style.display = "block";
+        if (content) content.textContent = "Listening...";
       }
     };
 
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
       if (content) content.textContent = transcript;
-      takeCommand(transcript.toLowerCase(), { btn, voice, content });
+      takeCommand(transcript, { btn, voice, content });
     };
 
     recognition.onerror = (event) => {
-      speak("Sorry, I encountered an error while listening. Please try again.", content);
+      speak(`Speech recognition error: ${event.error}. Please try again.`, content);
       console.error("Speech recognition error:", event.error);
       if (btn && voice) {
         btn.style.display = "flex";
@@ -153,7 +148,16 @@ const VoiceAssistant = (() => {
       }
     };
 
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (error) {
+      speak("Failed to start recognition. Please check microphone permissions.", content);
+      console.error("Recognition start error:", error);
+      if (btn && voice) {
+        btn.style.display = "flex";
+        voice.style.display = "none";
+      }
+    }
   };
 
   return { takeCommand, speak, wishMe, startRecognition, initVoices };
@@ -167,14 +171,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (!btn || !content || !voice) {
     console.error("Required DOM elements (#btn, #content, or #voice) not found.");
+    alert("Page elements are missing. Please check the HTML structure.");
     return;
   }
 
-  // Greet on load
   VoiceAssistant.wishMe();
 
-  // Start recognition on button click
   btn.addEventListener("click", () => {
     VoiceAssistant.startRecognition(btn, voice, content);
+  });
+
+  document.querySelectorAll("img").forEach(img => {
+    img.onerror = () => console.error(`Failed to load image: ${img.src}`);
   });
 });
