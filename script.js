@@ -2,6 +2,8 @@
 const VoiceAssistant = (() => {
   let teenMaleVoice = null;
   let isSpeechSupported = !!window.speechSynthesis;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const isRecognitionSupported = !!SpeechRecognition;
 
   // Initialize voices
   const initVoices = () => {
@@ -20,7 +22,6 @@ const VoiceAssistant = (() => {
         resolve();
       };
 
-      // Voices may not be available immediately
       if (window.speechSynthesis.getVoices().length) {
         loadVoices();
       } else {
@@ -42,7 +43,7 @@ const VoiceAssistant = (() => {
     utterance.pitch = 1.2;
     utterance.volume = 1;
 
-    window.speechSynthesis.cancel(); // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   };
 
@@ -60,11 +61,10 @@ const VoiceAssistant = (() => {
   };
 
   // Process voice command
-  const takeCommand = async (message, { btn, voiceGif } = {}) => {
-    // Validate DOM elements
-    if (btn && voiceGif) {
+  const takeCommand = async (message, { btn, voice } = {}) => {
+    if (btn && voice) {
       btn.style.display = "flex";
-      voiceGif.style.display = "none";
+      voice.style.display = "none";
     }
 
     if (!message || typeof message !== "string") {
@@ -73,9 +73,8 @@ const VoiceAssistant = (() => {
     }
 
     message = message.toLowerCase().trim();
-    await initVoices(); // Ensure voices are loaded
+    await initVoices();
 
-    // Command handlers
     const commands = [
       {
         keywords: ["hello", "hey", "hi"],
@@ -157,7 +156,6 @@ const VoiceAssistant = (() => {
       },
     ];
 
-    // Find and execute matching command
     const matchedCommand = commands.find((cmd) =>
       cmd.keywords.some((keyword) => message.includes(keyword))
     );
@@ -171,11 +169,63 @@ const VoiceAssistant = (() => {
     }
   };
 
-  return { takeCommand, speak, initVoices };
+  // Initialize speech recognition
+  const startRecognition = (btn, voice) => {
+    if (!isRecognitionSupported) {
+      speak("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      if (btn && voice) {
+        btn.style.display = "none";
+        voice.style.display = "block";
+      }
+    };
+
+    recognition.onresult = (event) => {
+      const message = event.results[0][0].transcript;
+      takeCommand(message, { btn, voice });
+    };
+
+    recognition.onerror = (event) => {
+      speak("Sorry, I encountered an error while listening. Please try again.");
+      console.error("Speech recognition error:", event.error);
+      if (btn && voice) {
+        btn.style.display = "flex";
+        voice.style.display = "none";
+      }
+    };
+
+    recognition.onend = () => {
+      if (btn && voice) {
+        btn.style.display = "flex";
+        voice.style.display = "none";
+      }
+    };
+
+    recognition.start();
+  };
+
+  return { takeCommand, speak, initVoices, startRecognition };
 })();
 
-// Example usage
-// Assuming btn and voiceGif are DOM elements
-const btn = document.querySelector("#commandBtn");
-const voiceGif = document.querySelector("#voiceGif");
-VoiceAssistant.takeCommand("tell me a joke", { btn, voiceGif });
+// Initialize assistant
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.querySelector("#btn");
+  const voice = document.querySelector("#voice");
+
+  if (!btn || !voice) {
+    console.error("Required DOM elements (#btn or #voice) not found.");
+    return;
+  }
+
+  btn.addEventListener("click", () => {
+    VoiceAssistant.startRecognition(btn, voice);
+  });
+});
