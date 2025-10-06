@@ -74,6 +74,8 @@ function takeCommand(message) {
   } else {
     const searchQuery = message.replace("cool", "").trim();
     speak(`Here's what I found for ${searchQuery}, check it out!`);
+
+window.speechSynthesis.getVoices().forEach(v => console.log(v.name, v.lang));
     window.open(`https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`, "_blank");
   }
 }
